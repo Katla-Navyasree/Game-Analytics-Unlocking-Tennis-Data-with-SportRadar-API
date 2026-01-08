@@ -1,7 +1,18 @@
+import os
 import requests
+from dotenv import load_dotenv
 
-API_KEY = "Ld7wEiJbJZYn69Y2A5DnZmSK7Ph3U7qcrTQU9tKm"
+# Load environment variables from .env
+load_dotenv()
+
+# Read API key from environment
+API_KEY = os.getenv("SPORTSRADAR_API_KEY")
+
+if not API_KEY:
+    raise ValueError("SPORTSRADAR_API_KEY is not set in the environment")
+
 URL = "https://api.sportradar.com/tennis/trial/v3/en/competitions.json"
+
 
 def fetch_competitions():
     response = requests.get(URL, params={"api_key": API_KEY})
