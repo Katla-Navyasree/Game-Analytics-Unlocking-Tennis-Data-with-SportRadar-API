@@ -1,10 +1,20 @@
+import os
 import requests
+from dotenv import load_dotenv
 
-API_KEY = "Ld7wEiJbJZYn69Y2A5DnZmSK7Ph3U7qcrTQU9tKm"
+# Load environment variables
+load_dotenv()
+
+API_KEY = os.getenv("SPORTSRADAR_API_KEY")
+
+if not API_KEY:
+    raise ValueError("SPORTSRADAR_API_KEY is not set in the environment")
+
 URL = "https://api.sportradar.com/tennis/trial/v3/en/complexes.json"
 
+
 def fetch_complexes():
-    response = requests.get(URL, params={"api_key": API_KEY})
+    response = requests.get(URL, params={"api_key": API_KEY}, timeout=10)
 
     if response.status_code != 200:
         print("Access denied:", response.text)
@@ -38,7 +48,8 @@ def fetch_complexes():
 
     return complexes, venues
 
+
 if __name__ == "__main__":
-    complexes,venues = fetch_complexes()
+    complexes, venues = fetch_complexes()
     print(f"Fetched {len(complexes)} complexes")
     print(f"Fetched {len(venues)} venues")
