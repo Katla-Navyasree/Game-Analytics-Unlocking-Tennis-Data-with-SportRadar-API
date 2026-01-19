@@ -3,20 +3,75 @@ import pandas as pd
 import plotly.express as px
 from databases.supabase_client import supabase
 
+# =========================================================
+# PAGE CONFIG
+# =========================================================
 st.set_page_config(page_title="Game Analytics – Tennis", layout="wide")
 
-# -------------------------
-# Helper
-# -------------------------
-@st.cache_data
-def load_table(table):
-    return pd.DataFrame(
-        supabase.table(table).select("*").execute().data
-    )
+# =========================================================
+# THEME (Dark Blue Glass UI)
+# =========================================================
+st.markdown("""
+<style>
+html, body, [data-testid="stAppViewContainer"] {
+    background: radial-gradient(circle at top, #0b1d33, #081425, #050b18) !important;
+    color: #e5f5ff;
+}
+[data-testid="stMainBlockContainer"] {
+    background: rgba(8,20,40,0.75);
+    backdrop-filter: blur(18px);
+    border-radius: 18px;
+    padding: 2rem;
+}
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #06101f, #0b1d33) !important;
+}
+[data-testid="stSidebar"] * {
+    color: #b8ecff !important;
+}
+h1,h2,h3 {
+    color: #7dd3fc !important;
+    text-shadow: 0 0 12px rgba(56,189,248,0.4);
+}
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, #0b1d33, #06101f) !important;
+    border-radius: 16px;
+    border: 1px solid rgba(0,255,255,0.15);
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    background: linear-gradient(90deg, #0ea5e9, #7c3aed) !important;
+    color: white !important;
+    border-radius: 12px;
+}
+[data-testid="stDataFrame"] {
+    background: rgba(6,16,31,0.85);
+    border-radius: 14px;
+    border: 1px solid rgba(0,255,255,0.1);
+}
+input, textarea {
+    background-color: #06101f !important;
+    color: #e5f5ff !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# -------------------------
-# Load all tables
-# -------------------------
+# =========================================================
+# TITLE
+# =========================================================
+st.markdown("## 🎾 **Game Analytics – Tennis**")
+st.caption("Interactive Sports Data Dashboard | SportRadar API")
+
+# =========================================================
+# DATA LOADER
+# =========================================================
+@st.cache_data(ttl=600)
+def load_table(table):
+    response = supabase.table(table).select("*").execute()
+    return pd.DataFrame(response.data)
+
+# =========================================================
+# LOAD DATA
+# =========================================================
 categories = load_table("categories")
 competitions = load_table("competitions")
 competitors = load_table("competitors")
@@ -24,172 +79,159 @@ rankings = load_table("competitor_rankings")
 complexes = load_table("complexes")
 venues = load_table("venues")
 
-# Pre-joins
-competition_category = competitions.merge(
-    categories, on="category_id", how="left"
+# =========================================================
+# PRE-JOINS
+# =========================================================
+competition_category = competitions.merge(categories, on="category_id", how="left")
+ranking_df = competitors.merge(rankings, on="competitor_id", how="left")
+venue_complex = venues.merge(complexes, on="complex_id", how="left")
+
+ranking_df = ranking_df.dropna(subset=["rank"])
+
+# =========================================================
+# SIDEBAR FILTERS (LIKE VIDEO)
+# =========================================================
+st.sidebar.header("📱 Interactive Filters")
+
+category_filter = st.sidebar.multiselect(
+    "Competition Category",
+    sorted(competition_category["category_name"].dropna().unique()),
+    default=["ATP", "ITF Men"]
 )
 
-ranking_df = competitors.merge(
-    rankings, on="competitor_id", how="left"
+gender_filter = st.sidebar.multiselect(
+    "Gender",
+    sorted(competition_category["gender"].dropna().unique()),
+    default=["men", "women", "mixed"]
 )
 
-venue_complex = venues.merge(
-    complexes, on="complex_id", how="left"
+rank_range = st.sidebar.slider(
+    "Rank Range",
+    int(ranking_df["rank"].min()),
+    int(ranking_df["rank"].max()),
+    (1, 50)
 )
 
-# -------------------------
-# Tabs
-# -------------------------
+country_filter = st.sidebar.multiselect(
+    "Country",
+    sorted(ranking_df["country"].dropna().unique()),
+    default=["Finland", "Latvia", "Georgia", "Slovakia"]
+)
+
+search_player = st.sidebar.text_input("🔍 Search Competitor")
+
+# =========================================================
+# APPLY FILTERS
+# =========================================================
+filtered_competitions = competition_category.copy()
+if category_filter:
+    filtered_competitions = filtered_competitions[
+        filtered_competitions["category_name"].isin(category_filter)
+    ]
+if gender_filter:
+    filtered_competitions = filtered_competitions[
+        filtered_competitions["gender"].isin(gender_filter)
+    ]
+
+filtered_rankings = ranking_df.copy()
+filtered_rankings = filtered_rankings[
+    (filtered_rankings["rank"] >= rank_range[0]) &
+    (filtered_rankings["rank"] <= rank_range[1])
+]
+if country_filter:
+    filtered_rankings = filtered_rankings[
+        filtered_rankings["country"].isin(country_filter)
+    ]
+if search_player:
+    filtered_rankings = filtered_rankings[
+        filtered_rankings["name"].str.contains(search_player, case=False, na=False)
+    ]
+
+# =========================================================
+# TABS
+# =========================================================
 tab1, tab2, tab3, tab4 = st.tabs([
-    "🏟 Competitions & Categories",
-    "👥 Competitors & Rankings",
-    "📍 Complexes & Venues",
+    "🏟 Competitions",
+    "👥 Competitors",
+    "📍 Venues",
     "📊 Dashboard"
 ])
 
 # =========================================================
-# TAB 1: COMPETITIONS & CATEGORIES
+# TAB 1: COMPETITIONS EXPLORER
 # =========================================================
 with tab1:
-    st.header("Competitions & Categories Analysis")
+    st.markdown("## 🏟 Competitions Explorer")
 
-    st.subheader("1. Competitions with Category Name")
     st.dataframe(
-        competition_category[["competition_name", "category_name"]]
+        filtered_competitions[
+            ["competition_name", "category_name", "type", "gender"]
+        ],
+        use_container_width=True
     )
 
-    st.subheader("2. Competition Count per Category")
-    count_df = competition_category.groupby("category_name").size().reset_index(name="count")
-    st.bar_chart(count_df.set_index("category_name"))
+    st.markdown("### 📊 Competitions per Category")
 
-    st.subheader("3. Doubles Competitions")
-    st.dataframe(
-        competitions[competitions["type"] == "doubles"]
-        [["competition_name", "gender"]]
-    )
-
-    st.subheader("4. Competitions by Category")
-    selected_cat = st.selectbox(
-        "Select Category",
-        categories["category_name"].unique()
-    )
-    st.dataframe(
-        competition_category[
-            competition_category["category_name"] == selected_cat
-        ][["competition_name", "type", "gender"]]
-    )
-
-    st.subheader("5. Parent & Sub Competitions")
-    parent_child = competitions.merge(
-        competitions,
-        left_on="competition_id",
-        right_on="parent_id",
-        suffixes=("_parent", "_child")
-    )
-    st.dataframe(
-        parent_child[["competition_name_parent", "competition_name_child"]]
-    )
-
-    st.subheader("6. Competition Type Distribution by Category")
-    dist = competition_category.groupby(
-        ["category_name", "type"]
-    ).size().reset_index(name="count")
+    count_df = filtered_competitions.groupby("category_name").size().reset_index(name="count")
 
     fig = px.bar(
-        dist,
+        count_df,
         x="category_name",
         y="count",
-        color="type",
-        barmode="group"
+        color="category_name",
+        template="plotly_dark"
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("7. Top-Level Competitions (No Parent)")
-    st.dataframe(
-        competitions[competitions["parent_id"].isna()]
-        [["competition_name", "type", "gender"]]
-    )
-
 # =========================================================
-# TAB 2: COMPETITORS & RANKINGS
+# TAB 2: COMPETITORS EXPLORER
 # =========================================================
 with tab2:
-    st.header("Competitors & Rankings")
+    st.markdown("## 👥 Competitors Explorer")
 
-    st.subheader("1. All Competitors with Rank & Points")
     st.dataframe(
-        ranking_df[["name", "country", "rank", "points"]]
+        filtered_rankings[
+            ["name", "country", "rank", "points", "movement"]
+        ],
+        use_container_width=True
     )
 
-    st.subheader("2. Top 5 Ranked Competitors")
+    st.markdown("### 🏆 Top Ranked Players")
+
+    top10 = ranking_df.sort_values("rank").head(10)
+
     st.dataframe(
-        ranking_df[ranking_df["rank"] <= 5]
-        [["name", "country", "rank", "points"]]
-    )
-
-    st.subheader("3. Stable Rank Competitors (No Movement)")
-    st.dataframe(
-        ranking_df[ranking_df["movement"] == 0]
-        [["name", "rank", "points"]]
-    )
-
-    st.subheader("4. Total Points by Country")
-    country = st.selectbox(
-        "Choose Country",
-        ranking_df["country"].dropna().unique()
-    )
-    total_points = ranking_df[
-        ranking_df["country"] == country
-    ]["points"].sum()
-
-    st.metric("Total Points", int(total_points))
-
-    st.subheader("5. Competitor Count per Country")
-    country_count = competitors.groupby("country").size().reset_index(name="count")
-    st.bar_chart(country_count.set_index("country"))
-
-    st.subheader("6. Highest Points – Current Week")
-    st.dataframe(
-        ranking_df.sort_values("points", ascending=False).head(10)
-        [["name", "country", "points"]]
+        top10[["name", "country", "rank", "points"]],
+        use_container_width=True
     )
 
 # =========================================================
-# TAB 3: COMPLEXES & VENUES
+# TAB 3: VENUES EXPLORER (VIDEO STYLE)
 # =========================================================
 with tab3:
-    st.header("Complexes & Venues")
+    st.markdown("## 📍 Venues Explorer")
 
-    st.subheader("1. Venues with Complex Name")
-    st.dataframe(
-        venue_complex[["venue_name", "complex_name", "country_name"]]
-    )
-
-    st.subheader("2. Venue Count per Complex")
-    venue_count = venue_complex.groupby("complex_name").size().reset_index(name="count")
-    st.bar_chart(venue_count.set_index("complex_name"))
-
-    st.subheader("3. Venues by Country")
-    selected_country = st.selectbox(
+    selected_venue_country = st.selectbox(
         "Select Country",
-        venue_complex["country_name"].unique()
-    )
-    st.dataframe(
-        venue_complex[
-            venue_complex["country_name"] == selected_country
-        ][["venue_name", "city_name", "timezone"]]
+        sorted(venue_complex["country_name"].dropna().unique())
     )
 
-    st.subheader("4. Venues & Timezones")
+    venue_country = venue_complex[
+        venue_complex["country_name"] == selected_venue_country
+    ]
+
     st.dataframe(
-        venue_complex[["venue_name", "timezone"]]
+        venue_country[
+            ["venue_name", "complex_name", "city_name", "timezone"]
+        ],
+        use_container_width=True
     )
 
 # =========================================================
 # TAB 4: DASHBOARD
 # =========================================================
 with tab4:
-    st.header("Project Dashboard")
+    st.markdown("## 📊 Project Dashboard")
 
     col1, col2, col3 = st.columns(3)
 
@@ -197,10 +239,15 @@ with tab4:
     col2.metric("Total Competitors", competitors.shape[0])
     col3.metric("Countries Represented", competitors["country"].nunique())
 
-    st.subheader("Top 10 Countries by Competitors")
-    fig = px.bar(
+    st.markdown("### 🌍 Top Countries by Players")
+
+    country_count = competitors.groupby("country").size().reset_index(name="count")
+
+    fig2 = px.bar(
         country_count.sort_values("count", ascending=False).head(10),
         x="country",
-        y="count"
+        y="count",
+        template="plotly_dark"
     )
-    st.plotly_chart(fig, use_container_width=True)
+
+    st.plotly_chart(fig2, use_container_width=True)
