@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from databases.supabase_client import supabase
 
 # =========================================================
@@ -89,7 +90,7 @@ venue_complex = venues.merge(complexes, on="complex_id", how="left")
 ranking_df = ranking_df.dropna(subset=["rank"])
 
 # =========================================================
-# SIDEBAR FILTERS (LIKE VIDEO)
+# SIDEBAR FILTERS
 # =========================================================
 st.sidebar.header("📱 Interactive Filters")
 
@@ -150,11 +151,11 @@ if search_player:
 # =========================================================
 # TABS
 # =========================================================
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, = st.tabs([
     "🏟 Competitions",
     "👥 Competitors",
     "📍 Venues",
-    "📊 Dashboard"
+    "📊 Dashboard",
 ])
 
 # =========================================================
@@ -196,36 +197,63 @@ with tab2:
         use_container_width=True
     )
 
-    st.markdown("### 🏆 Top Ranked Players")
+    st.subheader("🏆 Rank vs Points (Top Players)")
 
-    top10 = ranking_df.sort_values("rank").head(10)
-
-    st.dataframe(
-        top10[["name", "country", "rank", "points"]],
-        use_container_width=True
+    top_players = (
+        filtered_rankings
+        .sort_values("points", ascending=False)
+        .head(100)
     )
 
+    fig = px.scatter(
+       top_players,
+       x="rank",
+       y="points",
+       size="points",
+       color="country",
+       hover_name="name",
+       color_discrete_sequence=px.colors.qualitative.Bold,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 # =========================================================
-# TAB 3: VENUES EXPLORER (VIDEO STYLE)
+# TAB 3: VENUES EXPLORER
 # =========================================================
 with tab3:
     st.markdown("## 📍 Venues Explorer")
 
-    selected_venue_country = st.selectbox(
+    venue_country = st.selectbox(
         "Select Country",
         sorted(venue_complex["country_name"].dropna().unique())
     )
 
-    venue_country = venue_complex[
-        venue_complex["country_name"] == selected_venue_country
+    country_venues = venue_complex[
+        venue_complex["country_name"] == venue_country
     ]
 
     st.dataframe(
-        venue_country[
+        country_venues[
             ["venue_name", "complex_name", "city_name", "timezone"]
         ],
         use_container_width=True
     )
+
+    st.subheader("🏟 Venues per Complex")
+    vc = (
+        country_venues
+        .groupby("complex_name")
+        .size()
+        .reset_index(name="count")
+    )
+
+    fig = px.bar(
+        vc,
+        x="complex_name",
+        y="count",
+        color="complex_name",
+        color_discrete_sequence=px.colors.qualitative.Pastel,
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 # =========================================================
 # TAB 4: DASHBOARD
@@ -233,21 +261,71 @@ with tab3:
 with tab4:
     st.markdown("## 📊 Project Dashboard")
 
-    col1, col2, col3 = st.columns(3)
+    # KPI CALCULATIONS
+    total_competitors = ranking_df["competitor_id"].nunique()  # Use merged data
+    total_competitions = competitions["competition_id"].nunique()
+    total_countries = competitors["country"].nunique()
+    avg_points = int(ranking_df["points"].mean(skipna=True)) if 'points' in ranking_df.columns else 0
 
-    col1.metric("Total Competitions", competitions.shape[0])
-    col2.metric("Total Competitors", competitors.shape[0])
-    col3.metric("Countries Represented", competitors["country"].nunique())
+    # KPI ROW 
+    col1, col2, col3, col4 = st.columns(4)
 
-    st.markdown("### 🌍 Top Countries by Players")
+    col1.metric("Competitors", total_competitors)
+    col2.metric("Competitions", total_competitions)
+    col3.metric("Countries ", total_countries)
+    col4.metric("Avg Points", avg_points)
 
-    country_count = competitors.groupby("country").size().reset_index(name="count")
+    # LINE CHART(TREND STYLE)
+    
+    st.subheader("📈 Rank vs Points Trend")
 
-    fig2 = px.bar(
-        country_count.sort_values("count", ascending=False).head(10),
+    trend_df = (
+        filtered_rankings
+        .sort_values("rank")
+        .head(50)
+    )
+
+    fig_line = px.line(
+        trend_df,
+        x="rank",
+        y="points",
+        markers=True,
+        color_discrete_sequence=["#7CFCB5"]
+    )
+
+    fig_line.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+
+    
+    st.plotly_chart(fig_line, use_container_width=True)
+
+   # BAR CHART (COUNTRY DISTRIBUTION)
+
+    st.subheader("🌍 Country Distribution")
+
+    country_counts = (
+        filtered_rankings
+        .groupby("country")
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+        .head(10)
+   )
+
+    fig_bar = px.bar(
+        country_counts,
         x="country",
         y="count",
+        color="country",
+        color_discrete_sequence=px.colors.qualitative.Pastel,
         template="plotly_dark"
     )
 
-    st.plotly_chart(fig2, use_container_width=True)
+    fig_bar.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font_color='white'
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
